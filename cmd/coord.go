@@ -4,7 +4,9 @@ Copyright © 2024 NAME HERE <EMAIL ADDRESS>
 package cmd
 
 import (
+	"context"
 	"log"
+	"time"
 
 	"github.com/mattismoel/env"
 	"github.com/mattismoel/tmpr/internal/forecast"
@@ -54,7 +56,11 @@ to quickly create a Cobra application.`,
 
 		forecaster := openweather.NewForecaster(openWeatherCfg, geolocator)
 		coords := model.NewCoords(lon, lat)
-		fc, err := forecaster.ForecastAtCoords(coords)
+
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		fc, err := forecaster.ForecastAtCoords(ctx, coords)
 		if err != nil {
 			log.Fatalf("could not get forecast at coords: %v", err)
 		}

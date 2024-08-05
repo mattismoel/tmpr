@@ -1,8 +1,12 @@
 package geo
 
-import "github.com/mattismoel/tmpr/internal/model"
+import (
+	"context"
+
+	"github.com/mattismoel/tmpr/internal/model"
+)
 
 type Geolocator interface {
-	CoordsToLocation(model.Coords) (model.Location, error)
-	QueryToLocation(string) (model.Location, error)
+	CoordsToLocation(context.Context, model.Coords) (model.Location, error)
+	QueryToLocation(context.Context, string) (model.Location, error)
 }

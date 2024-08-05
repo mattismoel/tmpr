@@ -1,6 +1,7 @@
 package openweather
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/mattismoel/tmpr/internal/geo"
 	"github.com/mattismoel/tmpr/internal/model"
+	"golang.org/x/sync/errgroup"
 )
 
 type apiConfig struct {
@@ -92,30 +94,46 @@ func NewForecaster(cfg apiConfig, geolocator geo.Geolocator) *openWeatherForecas
 	return &openWeatherForecaster{cfg: cfg, geolctr: geolocator}
 }
 
-func (f openWeatherForecaster) ForecastAtCoords(coords model.Coords) (model.Forecast, error) {
+func (f openWeatherForecaster) ForecastAtCoords(ctx context.Context, coords model.Coords) (model.Forecast, error) {
+	grp, ctx := errgroup.WithContext(ctx)
+
 	u := f.buildURL("weather",
 		map[string]string{
 			"lat": strconv.FormatFloat(coords.Lat, 'f', -1, 64),
 			"lon": strconv.FormatFloat(coords.Lon, 'f', -1, 64),
 		})
 
-	resp, err := http.Get(u)
-	if err != nil {
-		return model.Forecast{}, fmt.Errorf("could not get forecast: %v", err)
-	}
-
-	defer resp.Body.Close()
-
 	var apiForecast apiForecast
+	grp.Go(func() error {
+		resp, err := http.Get(u)
+		if err != nil {
+			return fmt.Errorf("could not get forecast: %v", err)
+		}
 
-	err = json.NewDecoder(resp.Body).Decode(&apiForecast)
-	if err != nil {
-		return model.Forecast{}, fmt.Errorf("could not decode json to struct: %v", err)
-	}
+		defer resp.Body.Close()
 
-	location, err := f.geolctr.CoordsToLocation(coords)
+		err = json.NewDecoder(resp.Body).Decode(&apiForecast)
+		if err != nil {
+			return fmt.Errorf("could not decode json to struct: %v", err)
+		}
+
+		return nil
+	})
+
+	var location model.Location
+	grp.Go(func() error {
+		var err error
+		location, err = f.geolctr.CoordsToLocation(ctx, coords)
+		if err != nil {
+			return fmt.Errorf("could not get location from coords: %v", err)
+		}
+
+		return nil
+	})
+
+	err := grp.Wait()
 	if err != nil {
-		return model.Forecast{}, fmt.Errorf("could not get location from coords: %v", err)
+		return model.Forecast{}, err
 	}
 
 	forecast := model.Forecast{
@@ -134,15 +152,34 @@ func (f openWeatherForecaster) ForecastAtCoords(coords model.Coords) (model.Fore
 	return forecast, nil
 }
 
-func (f openWeatherForecaster) ForecastAtQuery(query string) (model.Forecast, error) {
-	location, err := f.geolctr.QueryToLocation(query)
-	if err != nil {
-		return model.Forecast{}, fmt.Errorf("could not get location: %v", err)
-	}
+func (f openWeatherForecaster) ForecastAtQuery(ctx context.Context, query string) (model.Forecast, error) {
+	grp, ctx := errgroup.WithContext(ctx)
 
-	forecast, err := f.ForecastAtCoords(location.Coords)
+	var location model.Location
+	grp.Go(func() error {
+		var err error
+		location, err = f.geolctr.QueryToLocation(ctx, query)
+		if err != nil {
+			return fmt.Errorf("could not get location: %v", err)
+		}
+
+		return nil
+	})
+
+	var forecast model.Forecast
+	grp.Go(func() error {
+		var err error
+		forecast, err = f.ForecastAtCoords(ctx, location.Coords)
+		if err != nil {
+			return fmt.Errorf("could not get forecast: %v", err)
+		}
+
+		return nil
+	})
+
+	err := grp.Wait()
 	if err != nil {
-		return model.Forecast{}, fmt.Errorf("could not get forecast: %v", err)
+		return model.Forecast{}, err
 	}
 
 	forecast.Location = location
