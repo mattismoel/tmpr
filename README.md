@@ -28,13 +28,15 @@ Help can always be found with `tmpr --help`. The basics are as following:
 Get forecast at specific coordinates:
 
 ```bash
-tmpr coords --unit="<unit>" --lat="<latitude>" --lon="<longitude>"
+tmpr coord --unit="<unit>" --lat="<latitude>" --lon="<longitude>"
+tmpr coord --unit="metric" --lat="55.6867243" --lon="12.5700724" # Example usage.
 ```
 
 Get forecast given a query:
 
 ```bash
-tmpr query --unit="<unit>" --query="New York, USA"
+tmpr query --unit="<unit>" --query="<query>"
+tmpr query --unit="metric" --query="New York, USA" # Example usage.
 ```
 
 > The `--unit` flag is required, and can be of following systems: `"metric", "imperial", "standard"`.
