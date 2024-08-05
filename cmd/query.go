@@ -4,7 +4,9 @@ Copyright © 2024 NAME HERE <EMAIL ADDRESS>
 package cmd
 
 import (
+	"context"
 	"log"
+	"time"
 
 	"github.com/mattismoel/env"
 	"github.com/mattismoel/tmpr/internal/forecast"
@@ -45,7 +47,11 @@ var queryCmd = &cobra.Command{
 		}
 
 		forecaster := openweather.NewForecaster(openWeatherCfg, geolocator)
-		fc, err := forecaster.ForecastAtQuery(query)
+
+		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Millisecond)
+		defer cancel()
+
+		fc, err := forecaster.ForecastAtQuery(ctx, query)
 		if err != nil {
 			log.Fatalf("could not get forecast: %v", err)
 		}

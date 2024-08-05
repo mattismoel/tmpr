@@ -1,6 +1,7 @@
 package locationiq
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -9,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/mattismoel/tmpr/internal/model"
+	"golang.org/x/sync/errgroup"
 )
 
 type locationIQGeolocator struct {
@@ -62,7 +64,8 @@ func NewGeolocator(apiKey string) (locationIQGeolocator, error) {
 	return locationIQGeolocator{apiKey: apiKey}, nil
 }
 
-func (l locationIQGeolocator) CoordsToLocation(coords model.Coords) (model.Location, error) {
+func (l locationIQGeolocator) CoordsToLocation(ctx context.Context, coords model.Coords) (model.Location, error) {
+	grp, ctx := errgroup.WithContext(ctx)
 	u := l.buildUrl(
 		"reverse",
 		map[string]string{
@@ -76,18 +79,26 @@ func (l locationIQGeolocator) CoordsToLocation(coords model.Coords) (model.Locat
 		},
 	)
 
-	resp, err := http.Get(u)
-	if err != nil {
-		return model.Location{}, fmt.Errorf("could not get location from API: %v", err)
-	}
-
-	defer resp.Body.Close()
-
 	var apiLocation apiLocation
+	grp.Go(func() error {
+		resp, err := http.Get(u)
+		if err != nil {
+			return fmt.Errorf("could not get location from API: %v", err)
+		}
 
-	err = json.NewDecoder(resp.Body).Decode(&apiLocation)
+		defer resp.Body.Close()
+
+		err = json.NewDecoder(resp.Body).Decode(&apiLocation)
+		if err != nil {
+			return fmt.Errorf("could not decode response to struct: %v", err)
+		}
+
+		return nil
+	})
+
+	err := grp.Wait()
 	if err != nil {
-		return model.Location{}, fmt.Errorf("could not decode response to struct: %v", err)
+		return model.Location{}, err
 	}
 
 	latFloat, err := strconv.ParseFloat(apiLocation.Lat, 64)
@@ -112,7 +123,8 @@ func (l locationIQGeolocator) CoordsToLocation(coords model.Coords) (model.Locat
 
 }
 
-func (l locationIQGeolocator) QueryToLocation(query string) (model.Location, error) {
+func (l locationIQGeolocator) QueryToLocation(ctx context.Context, query string) (model.Location, error) {
+	grp, ctx := errgroup.WithContext(ctx)
 	u := l.buildUrl("search", map[string]string{
 		"q":                query,
 		"limit":            "1",
@@ -121,21 +133,30 @@ func (l locationIQGeolocator) QueryToLocation(query string) (model.Location, err
 		"normalizecity":    "1",
 	})
 
-	resp, err := http.Get(u)
-	if err != nil {
-		return model.Location{}, fmt.Errorf("could not get location from API: %v", err)
-	}
-
-	defer resp.Body.Close()
-
 	var apiLocations []apiLocation
-	err = json.NewDecoder(resp.Body).Decode(&apiLocations)
-	if err != nil {
-		return model.Location{}, fmt.Errorf("could not decode response into struct: %v", err)
-	}
+	grp.Go(func() error {
+		resp, err := http.Get(u)
+		if err != nil {
+			return fmt.Errorf("could not get location from API: %v", err)
+		}
 
-	if len(apiLocations) <= 0 {
-		return model.Location{}, fmt.Errorf("no locations found")
+		defer resp.Body.Close()
+
+		err = json.NewDecoder(resp.Body).Decode(&apiLocations)
+		if err != nil {
+			return fmt.Errorf("could not decode response into struct: %v", err)
+		}
+
+		if len(apiLocations) <= 0 {
+			return fmt.Errorf("no locations found")
+		}
+
+		return nil
+	})
+
+	err := grp.Wait()
+	if err != nil {
+		return model.Location{}, err
 	}
 
 	apiLocation := apiLocations[0]
